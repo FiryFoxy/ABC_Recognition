@@ -1,0 +1,1264 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Riconoscimento Caratteri Disegnati - Rete Neurale</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.21.0/dist/tf.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+            font-weight: 300;
+        }
+
+        .header p {
+            font-size: 1.1rem;
+            opacity: 0.9;
+        }
+
+        .tabs {
+            display: flex;
+            background: #f8f9fa;
+            border-bottom: 1px solid #dee2e6;
+        }
+
+        .tab {
+            flex: 1;
+            padding: 20px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            border: none;
+            background: none;
+            font-size: 1.1rem;
+            font-weight: 500;
+            color: #6c757d;
+        }
+
+        .tab.active {
+            background: white;
+            color: #667eea;
+            border-bottom: 3px solid #667eea;
+        }
+
+        .tab:hover {
+            background: #e9ecef;
+        }
+
+        .tab-content {
+            display: none;
+            padding: 40px;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        .drawing-section {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 40px;
+            align-items: start;
+        }
+
+        .canvas-container {
+            text-align: center;
+        }
+
+        .canvas-title {
+            font-size: 1.5rem;
+            margin-bottom: 20px;
+            color: #333;
+        }
+
+        #drawingCanvas {
+            border: 3px solid #dee2e6;
+            border-radius: 15px;
+            cursor: crosshair;
+            background: white;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+        }
+
+        .controls {
+            background: #f8f9fa;
+            padding: 30px;
+            border-radius: 15px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.05);
+        }
+
+        .result-section {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 25px;
+            border-radius: 15px;
+            margin-bottom: 30px;
+            text-align: center;
+        }
+
+        .result-digit {
+            font-size: 4rem;
+            font-weight: bold;
+            margin: 10px 0;
+        }
+
+        .confidence {
+            font-size: 1.2rem;
+            opacity: 0.9;
+        }
+
+        .quadrants {
+            margin: 30px 0;
+        }
+
+        .quadrants h3 {
+            color: #333;
+            margin-bottom: 15px;
+            font-size: 1.2rem;
+        }
+
+        .quadrant-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+        }
+
+        .quadrant-item {
+            background: white;
+            padding: 15px;
+            border-radius: 10px;
+            border-left: 4px solid #667eea;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+        }
+
+        .quadrant-label {
+            font-weight: bold;
+            color: #667eea;
+            margin-bottom: 5px;
+        }
+
+        .quadrant-value {
+            font-size: 1.1rem;
+            font-family: 'Courier New', monospace;
+            color: #333;
+        }
+
+        .instructions {
+            background: #e3f2fd;
+            padding: 20px;
+            border-radius: 10px;
+            margin: 30px 0;
+        }
+
+        .instructions h3 {
+            color: #1976d2;
+            margin-bottom: 15px;
+        }
+
+        .instructions ul {
+            list-style: none;
+            padding-left: 0;
+        }
+
+        .instructions li {
+            padding: 5px 0;
+            color: #333;
+        }
+
+        .instructions li:before {
+            content: "• ";
+            color: #1976d2;
+            font-weight: bold;
+        }
+
+        .buttons {
+            display: flex;
+            gap: 15px;
+            margin-top: 30px;
+        }
+
+        .btn {
+            flex: 1;
+            padding: 15px;
+            border: none;
+            border-radius: 10px;
+            font-size: 1.1rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn-secondary {
+            background: #6c757d;
+            color: white;
+        }
+
+        .btn-secondary:hover {
+            background: #5a6268;
+            transform: translateY(-2px);
+        }
+
+        .mode-indicator {
+            text-align: center;
+            padding: 15px;
+            border-radius: 10px;
+            margin: 20px 0;
+            font-weight: bold;
+        }
+
+        .mode-drawing {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+
+        .mode-erasing {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+
+        /* Neural Network Visualization */
+        .nn-container {
+            text-align: center;
+        }
+
+        .nn-title {
+            font-size: 2rem;
+            color: #333;
+            margin-bottom: 30px;
+        }
+
+        .nn-canvas {
+            border: 2px solid #dee2e6;
+            border-radius: 15px;
+            background: white;
+            margin: 20px auto;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+        }
+
+        .nn-info {
+            background: #f8f9fa;
+            padding: 30px;
+            border-radius: 15px;
+            margin-top: 30px;
+            text-align: left;
+        }
+
+        .nn-info h3 {
+            color: #333;
+            margin-bottom: 20px;
+            font-size: 1.3rem;
+        }
+
+        .nn-info ul {
+            list-style: none;
+            padding: 0;
+        }
+
+        .nn-info li {
+            padding: 8px 0;
+            color: #555;
+            border-bottom: 1px solid #eee;
+        }
+
+        .nn-info li:last-child {
+            border-bottom: none;
+        }
+
+        .nn-info li strong {
+            color: #667eea;
+        }
+
+        .nn-info-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            list-style: none;
+            padding: 0;
+        }
+
+        .nn-info-item {
+            background: white;
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+            display: flex;
+            align-items: flex-start;
+            gap: 15px;
+        }
+
+        .nn-info-item .icon {
+            font-size: 1.8rem;
+            color: #667eea;
+            margin-top: 3px;
+        }
+
+        .nn-info-item strong {
+            display: block;
+            color: #333;
+            font-size: 1.1rem;
+            margin-bottom: 5px;
+        }
+
+        /* Responsive Design */
+        @media (max-width: 768px) {
+            .drawing-section {
+                grid-template-columns: 1fr;
+                gap: 20px;
+            }
+            
+            .header h1 {
+                font-size: 2rem;
+            }
+            
+            .buttons {
+                flex-direction: column;
+            }
+            
+            .container {
+                margin: 10px;
+                border-radius: 10px;
+            }
+        }
+
+        /* Loading Animation */
+        .loading {
+            display: none;
+            text-align: center;
+            padding: 20px;
+        }
+
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #667eea;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 20px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🧠 Riconoscimento Caratteri</h1>
+            <p>Rete Neurale per il Riconoscimento di Caratteri Disegnati a Mano (a, b, c)</p>
+        </div>
+
+        <div class="tabs">
+            <button class="tab active" onclick="switchTab('drawing')">🎨 Disegna Cifra</button>
+            <button class="tab" onclick="switchTab('network')">🧠 Rete Neurale</button>
+            <button class="tab" onclick="switchTab('dataset')">📦 Dataset</button>
+        </div>
+
+        <!-- Drawing Tab -->
+        <div id="drawing-tab" class="tab-content active">
+            <div class="drawing-section">
+                <div class="canvas-container">
+                    <h2 class="canvas-title">Area di Disegno</h2>
+                    <canvas id="drawingCanvas" width="400" height="400"></canvas>
+                    <div class="mode-indicator mode-drawing" id="modeIndicator">
+                        Modalità: Disegno
+                    </div>
+                </div>
+
+                <div class="controls">
+                    <div class="result-section">
+                        <h3>Risultato Classificazione</h3>
+                        <div class="result-digit" id="resultDigit">-</div>
+                        <div class="confidence" id="confidence">Confidenza: N/A</div>
+                    </div>
+
+                    <div class="quadrants">
+                        <h3>Conteggi Percentuali (0-100)</h3>
+                        <div class="quadrant-grid">
+                            <div class="quadrant-item">
+                                <div class="quadrant-label">x1 (Top-Left)</div>
+                                <div class="quadrant-value" id="x1">0.00</div>
+                            </div>
+                            <div class="quadrant-item">
+                                <div class="quadrant-label">x2 (Top-Right)</div>
+                                <div class="quadrant-value" id="x2">0.00</div>
+                            </div>
+                            <div class="quadrant-item">
+                                <div class="quadrant-label">x3 (Bottom-Left)</div>
+                                <div class="quadrant-value" id="x3">0.00</div>
+                            </div>
+                            <div class="quadrant-item">
+                                <div class="quadrant-label">x4 (Bottom-Right)</div>
+                                <div class="quadrant-value" id="x4">0.00</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="instructions">
+                        <h3>Istruzioni</h3>
+                        <ul>
+                            <li>Disegna con il mouse nella canvas</li>
+                            <li>Click destro per attivare la gomma</li>
+                            <li>Premi 'E' per attivare la gomma</li>
+                            <li>Premi 'C' per cancellare tutto</li>
+                            <li>Premi 'Invio' per classificare</li>
+                            <li>Disegna una cifra chiara e ben formata</li>
+                        </ul>
+                    </div>
+
+                    <div class="buttons">
+                        <button class="btn btn-primary" onclick="classifyDigit()">🔍 CLASSIFICA</button>
+                        <button class="btn btn-secondary" onclick="clearCanvas()">🗑️ CANCELLA</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Neural Network Tab -->
+        <div id="network-tab" class="tab-content">
+            <div class="nn-container">
+                <h2 class="nn-title">Architettura della Rete Neurale</h2>
+                <canvas id="nnCanvas" width="800" height="500"></canvas>
+                
+                <div class="nn-info">
+                    <h3>Dettagli del Modello</h3>
+                    <ul class="nn-info-grid">
+                        <li class="nn-info-item">
+                            <div class="icon">📥</div>
+                            <div>
+                                <strong>Input Layer (4 Neuroni)</strong>
+                                <span>Valori x1, x2, x3, x4 che rappresentano la densità di pixel nei 4 quadranti.</span>
+                            </div>
+                        </li>
+                        <li class="nn-info-item">
+                            <div class="icon">⚙️</div>
+                            <div>
+                                <strong>Hidden Layer (5 Neuroni)</strong>
+                                <span>Un livello nascosto con attivazione ReLU che estrae le caratteristiche dall'input.</span>
+                            </div>
+                        </li>
+                        <li class="nn-info-item">
+                            <div class="icon">📤</div>
+                            <div>
+                                <strong>Output Layer (3 Neuroni)</strong>
+                                <span>Fornisce la probabilità (Softmax) per ciascuna delle 3 lettere target: 'a', 'b', 'c'.</span>
+                            </div>
+                        </li>
+                        <li class="nn-info-item">
+                            <div class="icon">🏗️</div>
+                            <div>
+                                <strong>Architettura: 4-5-3</strong>
+                                <span>Una rete neurale Feed-Forward con 3 livelli in totale (Input, Hidden, Output).</span>
+                            </div>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <!-- Dataset Collection Tab -->
+        <div id="dataset-tab" class="tab-content">
+            <div class="drawing-section">
+                <div class="canvas-container">
+                    <h2 class="canvas-title">Area di Disegno (Dataset)</h2>
+                    <canvas id="dsCanvas" width="400" height="400"></canvas>
+                    <div class="mode-indicator mode-drawing" id="dsModeIndicator">Modalità: Disegno</div>
+                </div>
+
+                <div class="controls">
+                    <div style="margin-bottom: 20px;">
+                        <h3 style="margin-bottom:10px;">Impostazioni Raccolta</h3>
+                        <div style="display:flex; gap:15px; align-items:center; flex-wrap:wrap;">
+                            <label for="dsCountPerLabel"><strong>Immagini per carattere:</strong></label>
+                            <input id="dsCountPerLabel" type="number" min="1" max="500" value="5" style="width:90px; padding:8px; border:1px solid #ced4da; border-radius:8px;">
+                            <button class="btn btn-secondary" onclick="dsResetProgress()">🔁 Reimposta Progressi</button>
+                        </div>
+                    </div>
+
+                    <div style="margin-bottom: 20px;">
+                        <h3 style="margin-bottom:10px;">Seleziona Lettere (a, b, c)</h3>
+                        <div id="dsLabelGrid" style="display:grid; grid-template-columns: repeat(6, 1fr); gap:8px;">
+                            <!-- checkboxes a-c injected by JS if missing -->
+                        </div>
+                    </div>
+
+                    <div class="result-section" style="margin-top: 10px;">
+                        <div id="dsStatusTitle" style="font-weight:bold;">Prossima etichetta: -</div>
+                        <div id="dsStatusSub" class="confidence">0 / 0 raccolti</div>
+                    </div>
+
+                    <div class="buttons">
+                        <button class="btn btn-primary" onclick="dsSaveSample()">💾 Salva campione</button>
+                        <button class="btn btn-secondary" onclick="dsClearCanvas()">🗑️ Cancella</button>
+                        <button class="btn btn-primary" onclick="dsExportCSV()">⬇️ Esporta CSV</button>
+                    </div>
+
+                    <div class="instructions" style="margin-top:20px;">
+                        <h3>Istruzioni Dataset</h3>
+                        <ul>
+                            <li>Seleziona i caratteri da raccogliere e imposta il numero per ciascuno.</li>
+                            <li>Disegna il carattere indicato in alto (Prossima etichetta).</li>
+                            <li>Clicca "Salva campione" per registrare e passare al successivo.</li>
+                            <li>Per ogni disegno si salvano i conteggi percentuali dei quadranti: x1, x2, x3, x4.</li>
+                            <li>Usa "Esporta CSV" per scaricare il dataset etichettato (label,x1,x2,x3,x4).</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="loading" id="loading">
+            <div class="spinner"></div>
+            <p>Caricamento modello...</p>
+        </div>
+    </div>
+
+    <script>
+        // Global variables
+        let canvas, ctx;
+        let isDrawing = false;
+        let isErasing = false;
+        let lastX = 0, lastY = 0;
+        let brushSize = 8;
+        let updateTimeout = null; // For throttling updates
+        
+        // Canvas dimensions
+        const CANVAS_SIZE = 400;
+        const QUADRANT_SIZE = CANVAS_SIZE / 2;
+        
+        // TF.js model (loaded lazily from ./letter_recognition_model/model.json if available)
+        let tfModel = null;
+        // Scaler config loaded from ./scaler.json if available
+        let scalerConfig = null; // { mean: [..], scale: [..] } or { min: [..], scale: [..] }
+        
+        // Initialize when page loads
+        window.addEventListener('load', function() {
+            initializeCanvas();
+            drawNeuralNetwork();
+            dsInitialize();
+            // Try load scaler config (optional)
+            fetch('./scaler.json')
+                .then(r => r.ok ? r.json() : null)
+                .then(j => { scalerConfig = j; })
+                .catch(() => { /* optional */ });
+        });
+
+        function initializeCanvas() {
+            canvas = document.getElementById('drawingCanvas');
+            if (!canvas) {
+                console.error('Canvas not found!');
+                return;
+            }
+            
+            ctx = canvas.getContext('2d');
+            if (!ctx) {
+                console.error('Canvas context not available!');
+                return;
+            }
+            
+            // Set canvas properties
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
+            
+            // Clear canvas
+            clearCanvas();
+            
+            // Add event listeners
+            canvas.addEventListener('mousedown', startDrawing);
+            canvas.addEventListener('mousemove', draw);
+            canvas.addEventListener('mouseup', stopDrawing);
+            canvas.addEventListener('mouseout', stopDrawing);
+            canvas.addEventListener('contextmenu', toggleEraser);
+            
+            // Touch support for mobile devices
+            canvas.addEventListener('touchstart', handleTouch);
+            canvas.addEventListener('touchmove', handleTouch);
+            canvas.addEventListener('touchend', stopDrawing);
+            
+            // Keyboard shortcuts
+            document.addEventListener('keydown', handleKeyPress);
+        }
+
+        function startDrawing(e) {
+            if (!canvas || !ctx) return;
+            isDrawing = true;
+            [lastX, lastY] = getMousePos(e);
+            drawPixel(lastX, lastY);
+            updateQuadrantCountsThrottled(); // Update immediately when starting to draw
+        }
+
+        function draw(e) {
+            if (!isDrawing || !canvas || !ctx) return;
+            
+            const [currentX, currentY] = getMousePos(e);
+            
+            ctx.globalCompositeOperation = isErasing ? 'destination-out' : 'source-over';
+            ctx.strokeStyle = isErasing ? 'rgba(0,0,0,1)' : 'black';
+            ctx.lineWidth = brushSize;
+            
+            ctx.beginPath();
+            ctx.moveTo(lastX, lastY);
+            ctx.lineTo(currentX, currentY);
+            ctx.stroke();
+            
+            [lastX, lastY] = [currentX, currentY];
+            
+            // Update counts in real-time during drawing (throttled)
+            updateQuadrantCountsThrottled();
+        }
+
+        function drawPixel(x, y) {
+            if (!ctx) return;
+            ctx.globalCompositeOperation = isErasing ? 'destination-out' : 'source-over';
+            ctx.fillStyle = isErasing ? 'rgba(0,0,0,1)' : 'black';
+            ctx.beginPath();
+            ctx.arc(x, y, brushSize / 2, 0, Math.PI * 2);
+            ctx.fill();
+        }
+
+        function stopDrawing() {
+            if (isDrawing) {
+                isDrawing = false;
+                updateQuadrantCounts(); // Immediate update when stopping
+            }
+        }
+
+        function getMousePos(e) {
+            if (!canvas) return [0, 0];
+            const rect = canvas.getBoundingClientRect();
+            return [
+                e.clientX - rect.left,
+                e.clientY - rect.top
+            ];
+        }
+
+        function handleTouch(e) {
+            e.preventDefault();
+            const touch = e.touches[0];
+            const mouseEvent = new MouseEvent(e.type === 'touchstart' ? 'mousedown' : 
+                                             e.type === 'touchmove' ? 'mousemove' : 'mouseup', {
+                clientX: touch.clientX,
+                clientY: touch.clientY
+            });
+            canvas.dispatchEvent(mouseEvent);
+        }
+
+        function toggleEraser(e) {
+            e.preventDefault();
+            isErasing = !isErasing;
+            updateModeIndicator();
+        }
+
+        function updateModeIndicator() {
+            const indicator = document.getElementById('modeIndicator');
+            if (isErasing) {
+                indicator.textContent = 'Modalità: Gomma';
+                indicator.className = 'mode-indicator mode-erasing';
+            } else {
+                indicator.textContent = 'Modalità: Disegno';
+                indicator.className = 'mode-indicator mode-drawing';
+            }
+        }
+
+        function handleKeyPress(e) {
+            switch(e.key.toLowerCase()) {
+                case 'e':
+                case 'd':
+                    isErasing = !isErasing;
+                    updateModeIndicator();
+                    break;
+                case 'c':
+                    clearCanvas();
+                    break;
+                case 'enter':
+                    classifyDigit();
+                    break;
+            }
+        }
+
+        function clearCanvas() {
+            if (!ctx) return;
+            ctx.clearRect(0, 0, CANVAS_SIZE, CANVAS_SIZE);
+            drawGrid();
+            updateQuadrantCounts(); // Immediate update when clearing
+            updateResult('-', 0);
+        }
+
+        function drawGrid() {
+            if (!ctx) return;
+            ctx.strokeStyle = '#ddd';
+            ctx.lineWidth = 1;
+            ctx.setLineDash([5, 5]);
+            
+            // Vertical line
+            ctx.beginPath();
+            ctx.moveTo(QUADRANT_SIZE, 0);
+            ctx.lineTo(QUADRANT_SIZE, CANVAS_SIZE);
+            ctx.stroke();
+            
+            // Horizontal line
+            ctx.beginPath();
+            ctx.moveTo(0, QUADRANT_SIZE);
+            ctx.lineTo(CANVAS_SIZE, QUADRANT_SIZE);
+            ctx.stroke();
+            
+            ctx.setLineDash([]);
+        }
+
+        function updateQuadrantCountsThrottled() {
+            if (updateTimeout) {
+                clearTimeout(updateTimeout);
+            }
+            updateTimeout = setTimeout(updateQuadrantCounts, 16); // ~60fps
+        }
+
+        function updateQuadrantCounts() {
+            if (!ctx || !canvas) return;
+            
+            try {
+                const imageData = ctx.getImageData(0, 0, CANVAS_SIZE, CANVAS_SIZE);
+                const data = imageData.data;
+                
+                const quadrants = [
+                    { startX: 0, startY: 0, endX: QUADRANT_SIZE, endY: QUADRANT_SIZE }, // x1 (TL)
+                    { startX: QUADRANT_SIZE, startY: 0, endX: CANVAS_SIZE, endY: QUADRANT_SIZE }, // x2 (TR)
+                    { startX: 0, startY: QUADRANT_SIZE, endX: QUADRANT_SIZE, endY: CANVAS_SIZE }, // x3 (BL)
+                    { startX: QUADRANT_SIZE, startY: QUADRANT_SIZE, endX: CANVAS_SIZE, endY: CANVAS_SIZE } // x4 (BR)
+                ];
+                
+                quadrants.forEach((quadrant, index) => {
+                    let blackPixels = 0;
+                    let totalPixels = 0;
+                    
+                    // Sample every 2 pixels for better performance
+                    for (let y = quadrant.startY; y < quadrant.endY; y += 2) {
+                        for (let x = quadrant.startX; x < quadrant.endX; x += 2) {
+                            const pixelIndex = (y * CANVAS_SIZE + x) * 4;
+                            const r = data[pixelIndex];
+                            const g = data[pixelIndex + 1];
+                            const b = data[pixelIndex + 2];
+                            const alpha = data[pixelIndex + 3];
+                            
+                            // Check if pixel is black and has some opacity
+                            if (alpha > 0 && r < 100 && g < 100 && b < 100) {
+                                blackPixels++;
+                            }
+                            totalPixels++;
+                        }
+                    }
+                    
+                    // Scale up the percentage since we sampled every 2 pixels
+                    const percentage = totalPixels > 0 ? (blackPixels / totalPixels) * 100 * 4 : 0;
+                    const element = document.getElementById(`x${index + 1}`);
+                    if (element) {
+                        element.textContent = Math.min(100, percentage).toFixed(2);
+                    }
+                });
+            } catch (error) {
+                console.error('Error updating quadrant counts:', error);
+            }
+        }
+
+        async function classifyDigit() {
+            // Collect features (percentages)
+            const x1 = parseFloat(document.getElementById('x1').textContent);
+            const x2 = parseFloat(document.getElementById('x2').textContent);
+            const x3 = parseFloat(document.getElementById('x3').textContent);
+            const x4 = parseFloat(document.getElementById('x4').textContent);
+            
+            // If TF.js model available, use it; else use heuristic
+            try {
+                if (!tfModel) {
+                    // Attempt to load once
+                    tfModel = await tf.loadLayersModel('./letter_recognition_model/model.json');
+                }
+            } catch (e) {
+                // Ignore load error; will fallback
+            }
+
+            if (tfModel) {
+                const norm = normalizeFeatures([x1, x2, x3, x4]);
+                const input = tf.tensor2d([norm]);
+                const probs = tfModel.predict(input);
+                const data = await probs.data();
+                input.dispose(); probs.dispose();
+                const labels = ['a','b','c'];
+                let maxIdx = 0; let maxVal = data[0];
+                for (let i = 1; i < data.length; i++) if (data[i] > maxVal) { maxVal = data[i]; maxIdx = i; }
+                updateResult(labels[maxIdx], Math.max(0, Math.min(0.999, maxVal)));
+                return;
+            }
+
+            // Heuristic fallback
+            const total = x1 + x2 + x3 + x4;
+            if (total < 5) { updateResult('-', 0); return; }
+            let letter, confidence;
+            const top = x1 + x2;
+            const bottom = x3 + x4;
+            const left = x1 + x3;
+            const right = x2 + x4;
+            if (top > bottom + 10 && right > left - 5) { letter = 'a'; confidence = Math.min(0.95, top / (bottom + 1) / 4); }
+            else if (left > right + 10) { letter = 'b'; confidence = Math.min(0.9, left / (right + 1) / 4); }
+            else if (left > right && top > x4 && x2 < 12) { letter = 'c'; confidence = Math.min(0.88, left / (right + 1) / 3.5); }
+            else { letter = ['a','b','c'][Math.floor(Math.random()*3)]; confidence = 0.5; }
+            updateResult(letter, confidence);
+        }
+
+        function normalizeFeatures(arr) {
+            // If scaler.json present (StandardScaler-like): { mean: [...], scale: [...] }
+            // If MinMax-style: { min: [...], scale: [...] } (where scale is 1/(max-min))
+            try {
+                if (scalerConfig && Array.isArray(arr) && arr.length === 4) {
+                    if (Array.isArray(scalerConfig.mean) && Array.isArray(scalerConfig.scale)) {
+                        return arr.map((v, i) => ((v) - scalerConfig.mean[i]) / (scalerConfig.scale[i] || 1));
+                    }
+                    if (Array.isArray(scalerConfig.min) && Array.isArray(scalerConfig.scale)) {
+                        return arr.map((v, i) => (v - scalerConfig.min[i]) * (scalerConfig.scale[i] || 1));
+                    }
+                }
+            } catch (_) { /* ignore */ }
+            // Fallback: scale to 0-1 from 0-100
+            return arr.map(v => v / 100.0);
+        }
+
+        function updateResult(digit, confidence) {
+            document.getElementById('resultDigit').textContent = digit;
+            document.getElementById('confidence').textContent = 
+                `Confidenza: ${(confidence * 100).toFixed(1)}%`;
+        }
+
+        function switchTab(tabName) {
+            // Hide all tabs
+            document.querySelectorAll('.tab-content').forEach(tab => {
+                tab.classList.remove('active');
+            });
+            
+            // Remove active class from all tab buttons
+            document.querySelectorAll('.tab').forEach(tab => {
+                tab.classList.remove('active');
+            });
+            
+            // Show selected tab
+            document.getElementById(tabName + '-tab').classList.add('active');
+            
+            // Add active class to clicked tab button
+            document.querySelector(`[onclick="switchTab('${tabName}')"]`).classList.add('active');
+            
+            // Redraw neural network if switching to network tab
+            if (tabName === 'network') {
+                setTimeout(drawNeuralNetwork, 100);
+            }
+        }
+
+        function drawNeuralNetwork() {
+            const canvas = document.getElementById('nnCanvas');
+            if (!canvas) return;
+            
+            const ctx = canvas.getContext('2d');
+            if (!ctx) return;
+            
+            // Clear canvas
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // Get canvas dimensions
+            const width = canvas.width;
+            const height = canvas.height;
+            
+            // Define layer positions and sizes
+            const margin = 80;
+            const availableWidth = width - 2 * margin;
+            const layerSpacing = availableWidth / 4;
+            const layerX = range(4).map(i => margin + i * layerSpacing);
+
+            const layerNames = ["INPUT\n(x1,x2,x3,x4)", "HIDDEN\nLAYER", "OUTPUT\n(a,b,c)"];
+            const layerSizes = [4, 5, 3];
+            const layerColors = ["#4CAF50", "#2196F3", "#FF9800", "#F44336"];
+            
+            const neuronRadius = Math.min(20, layerSpacing / 8);
+            
+            // Draw title
+            ctx.fillStyle = '#333';
+            ctx.font = 'bold 24px Arial';
+            ctx.textAlign = 'center';
+            ctx.fillText('Architettura Rete Neurale per Riconoscimento Caratteri', width / 2, 40);
+            
+            // Draw layers
+            const layerXPositions = [margin, width / 2, width - margin];
+            layerXPositions.forEach((x, layerIdx) => {
+                const name = layerNames[layerIdx];
+                const size = layerSizes[layerIdx];
+                const color = layerColors[layerIdx];
+                
+                // Draw layer label
+                ctx.fillStyle = '#333';
+                ctx.font = 'bold 14px Arial';
+                ctx.textAlign = 'center';
+                ctx.fillText(name, x, 70);
+                
+                // Calculate neuron positions
+                const startY = (height - 100) / 2 - (size * (neuronRadius * 2 + 10)) / 2 + 100;
+                
+                for (let neuronIdx = 0; neuronIdx < size; neuronIdx++) {
+                    const y = startY + neuronIdx * (neuronRadius * 2 + 10);
+                    
+                    // Draw neuron (circle)
+                    ctx.fillStyle = color;
+                    ctx.strokeStyle = '#333';
+                    ctx.lineWidth = 2;
+                    ctx.beginPath();
+                    ctx.arc(x, y, neuronRadius, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.stroke();
+                    
+                    // Add neuron label
+                    ctx.fillStyle = 'white';
+                    ctx.font = 'bold 12px Arial';
+                    ctx.textAlign = 'center';
+                    
+                    if (layerIdx === 0) {
+                        ctx.fillText(`x${neuronIdx + 1}`, x, y + 4);
+                    } else if (layerIdx === layerXPositions.length - 1) {
+                        const letters = ['a','b','c'];
+                        ctx.fillText(`${letters[neuronIdx] || ''}`, x, y + 4);
+                    } else {
+                        ctx.fillText(`${neuronIdx + 1}`, x, y + 4);
+                    }
+                }
+            });
+            
+            // Draw connections
+            for (let layerIdx = 0; layerIdx < layerXPositions.length - 1; layerIdx++) {
+                const currentX = layerXPositions[layerIdx];
+                const nextX = layerXPositions[layerIdx + 1];
+                const currentSize = layerSizes[layerIdx];
+                const nextSize = layerSizes[layerIdx + 1];
+                
+                const currentStartY = (height - 100) / 2 - (currentSize * (neuronRadius * 2 + 10)) / 2 + 100;
+                const nextStartY = (height - 100) / 2 - (nextSize * (neuronRadius * 2 + 10)) / 2 + 100;
+                
+                for (let i = 0; i < currentSize; i++) {
+                    const currentY = currentStartY + i * (neuronRadius * 2 + 10);
+                    for (let j = 0; j < nextSize; j++) {
+                        const nextY = nextStartY + j * (neuronRadius * 2 + 10);
+                        
+                        ctx.strokeStyle = '#ccc';
+                        ctx.lineWidth = 1;
+                        ctx.beginPath();
+                        ctx.moveTo(currentX + neuronRadius, currentY);
+                        ctx.lineTo(nextX - neuronRadius, nextY);
+                        ctx.stroke();
+                    }
+                }
+            }
+            
+        }
+
+        // Helper function for range
+        function range(n) {
+            return Array.from({length: n}, (_, i) => i);
+        }
+
+        // =====================
+        // Dataset Collection JS
+        // =====================
+        let dsCanvasEl, dsCtx;
+        let dsIsDrawing = false;
+        let dsIsErasing = false;
+        let dsLastX = 0, dsLastY = 0;
+        let dsBrushSize = 8;
+        const DS_CANVAS_SIZE = 400;
+        const DS_TARGET_SIZE = 28;
+
+        let dsSelectedLabels = new Set(); // letters: 'a','b','c'
+        let dsCountTarget = 5;
+        let dsProgress = Array(3).fill(0); // per label count for a,b,c
+        let dsRows = []; // collected rows: [label, x1, x2, x3, x4]
+
+        const dsLabelToIndex = (lbl) => ({ a:0, b:1, c:2 })[lbl];
+        const dsIndexToLabel = (idx) => ['a','b','c'][idx];
+
+        function dsInitialize() {
+            // Build checkboxes if not present
+            const grid = document.getElementById('dsLabelGrid');
+            if (grid && grid.children.length === 0) {
+                ['a','b','c'].forEach((letter) => {
+                    const id = `dsLbl_${letter}`;
+                    const wrapper = document.createElement('label');
+                    wrapper.style.display = 'flex';
+                    wrapper.style.alignItems = 'center';
+                    wrapper.style.justifyContent = 'center';
+                    wrapper.style.gap = '6px';
+                    wrapper.style.padding = '6px 8px';
+                    wrapper.style.border = '1px solid #dee2e6';
+                    wrapper.style.borderRadius = '8px';
+                    wrapper.style.cursor = 'pointer';
+                    const cb = document.createElement('input');
+                    cb.type = 'checkbox';
+                    cb.id = id;
+                    cb.value = letter;
+                    cb.addEventListener('change', dsUpdateSelection);
+                    const span = document.createElement('span');
+                    span.textContent = letter;
+                    span.style.fontWeight = 'bold';
+                    wrapper.appendChild(cb);
+                    wrapper.appendChild(span);
+                    grid.appendChild(wrapper);
+                });
+            }
+
+            const countInput = document.getElementById('dsCountPerLabel');
+            if (countInput) {
+                countInput.addEventListener('change', () => {
+                    const v = parseInt(countInput.value || '1', 10);
+                    dsCountTarget = Math.max(1, Math.min(500, isNaN(v) ? 1 : v));
+                    countInput.value = String(dsCountTarget);
+                    dsRefreshStatus();
+                });
+            }
+
+            dsCanvasEl = document.getElementById('dsCanvas');
+            if (!dsCanvasEl) return;
+            dsCtx = dsCanvasEl.getContext('2d');
+            dsCtx.lineCap = 'round';
+            dsCtx.lineJoin = 'round';
+            dsClearCanvas();
+
+            dsCanvasEl.addEventListener('mousedown', dsStartDraw);
+            dsCanvasEl.addEventListener('mousemove', dsDraw);
+            dsCanvasEl.addEventListener('mouseup', dsStopDraw);
+            dsCanvasEl.addEventListener('mouseout', dsStopDraw);
+            dsCanvasEl.addEventListener('contextmenu', dsToggleEraser);
+
+            dsCanvasEl.addEventListener('touchstart', dsHandleTouch);
+            dsCanvasEl.addEventListener('touchmove', dsHandleTouch);
+            dsCanvasEl.addEventListener('touchend', dsStopDraw);
+
+            document.addEventListener('keydown', (e) => {
+                if (!document.getElementById('dataset-tab').classList.contains('active')) return;
+                switch (e.key.toLowerCase()) {
+                    case 'e':
+                    case 'd':
+                        dsIsErasing = !dsIsErasing;
+                        dsUpdateModeIndicator();
+                        break;
+                    case 'c':
+                        dsClearCanvas();
+                        break;
+                }
+            });
+
+            dsRefreshStatus();
+        }
+
+        function dsUpdateSelection() {
+            dsSelectedLabels = new Set();
+            document.querySelectorAll('#dsLabelGrid input[type="checkbox"]').forEach(cb => {
+                if (cb.checked) dsSelectedLabels.add(cb.value);
+            });
+            dsRefreshStatus();
+        }
+
+        function dsCurrentTargetLabel() {
+            // Return the next label (string) among selected with progress < target
+            const selected = Array.from(dsSelectedLabels).sort();
+            for (const lbl of selected) {
+                const idx = dsLabelToIndex(lbl);
+                if (idx !== undefined && dsProgress[idx] < dsCountTarget) return lbl;
+            }
+            return null;
+        }
+
+        function dsRefreshStatus() {
+            const next = dsCurrentTargetLabel();
+            const totalNeeded = Array.from(dsSelectedLabels).length * dsCountTarget;
+            const totalHave = dsProgress.reduce((a, b, i) => a + (dsSelectedLabels.has(dsIndexToLabel(i)) ? Math.min(b, dsCountTarget) : 0), 0);
+            const titleEl = document.getElementById('dsStatusTitle');
+            const subEl = document.getElementById('dsStatusSub');
+            if (next !== null) {
+                const idx = dsLabelToIndex(next);
+                titleEl.textContent = `Prossima etichetta: ${next}`;
+                subEl.textContent = `${dsProgress[idx]} / ${dsCountTarget} per '${next}' · Totale ${totalHave}/${totalNeeded}`;
+            } else {
+                titleEl.textContent = 'Raccolta completata (per selezione attuale)';
+                subEl.textContent = `${totalHave}/${totalNeeded}`;
+            }
+        }
+
+        function dsStartDraw(e) {
+            dsIsDrawing = true;
+            [dsLastX, dsLastY] = dsGetMousePos(e);
+            dsDrawDot(dsLastX, dsLastY);
+        }
+
+        function dsDraw(e) {
+            if (!dsIsDrawing) return;
+            const [x, y] = dsGetMousePos(e);
+            dsCtx.globalCompositeOperation = dsIsErasing ? 'destination-out' : 'source-over';
+            dsCtx.strokeStyle = dsIsErasing ? 'rgba(0,0,0,1)' : 'black';
+            dsCtx.lineWidth = dsBrushSize;
+            dsCtx.beginPath();
+            dsCtx.moveTo(dsLastX, dsLastY);
+            dsCtx.lineTo(x, y);
+            dsCtx.stroke();
+            [dsLastX, dsLastY] = [x, y];
+        }
+
+        function dsDrawDot(x, y) {
+            dsCtx.globalCompositeOperation = dsIsErasing ? 'destination-out' : 'source-over';
+            dsCtx.fillStyle = dsIsErasing ? 'rgba(0,0,0,1)' : 'black';
+            dsCtx.beginPath();
+            dsCtx.arc(x, y, dsBrushSize / 2, 0, Math.PI * 2);
+            dsCtx.fill();
+        }
+
+        function dsStopDraw() { dsIsDrawing = false; }
+        function dsToggleEraser(e) { e.preventDefault(); dsIsErasing = !dsIsErasing; dsUpdateModeIndicator(); }
+        function dsUpdateModeIndicator() {
+            const el = document.getElementById('dsModeIndicator');
+            if (!el) return;
+            if (dsIsErasing) { el.textContent = 'Modalità: Gomma'; el.className = 'mode-indicator mode-erasing'; }
+            else { el.textContent = 'Modalità: Disegno'; el.className = 'mode-indicator mode-drawing'; }
+        }
+
+        function dsGetMousePos(e) {
+            const rect = dsCanvasEl.getBoundingClientRect();
+            return [ (e.clientX - rect.left), (e.clientY - rect.top) ];
+        }
+
+        function dsHandleTouch(e) {
+            e.preventDefault();
+            const t = e.touches[0];
+            const ev = new MouseEvent(e.type === 'touchstart' ? 'mousedown' : (e.type === 'touchmove' ? 'mousemove' : 'mouseup'), {
+                clientX: t.clientX,
+                clientY: t.clientY
+            });
+            dsCanvasEl.dispatchEvent(ev);
+        }
+
+        function dsClearCanvas() {
+            if (!dsCtx) return;
+            dsCtx.clearRect(0, 0, DS_CANVAS_SIZE, DS_CANVAS_SIZE);
+            // Draw grid
+            dsCtx.strokeStyle = '#ddd';
+            dsCtx.lineWidth = 1;
+            dsCtx.setLineDash([5,5]);
+            dsCtx.beginPath(); dsCtx.moveTo(DS_CANVAS_SIZE/2, 0); dsCtx.lineTo(DS_CANVAS_SIZE/2, DS_CANVAS_SIZE); dsCtx.stroke();
+            dsCtx.beginPath(); dsCtx.moveTo(0, DS_CANVAS_SIZE/2); dsCtx.lineTo(DS_CANVAS_SIZE, DS_CANVAS_SIZE/2); dsCtx.stroke();
+            dsCtx.setLineDash([]);
+            dsUpdateModeIndicator();
+        }
+
+        function dsResetProgress() {
+            dsProgress = Array(3).fill(0);
+            dsRows = [];
+            dsRefreshStatus();
+        }
+
+        function dsSaveSample() {
+            const next = dsCurrentTargetLabel();
+            if (next === null) { alert('Nessuna etichetta selezionata o raccolta completata.'); return; }
+            // Compute quadrant percentages (x1..x4)
+            const [qx1, qx2, qx3, qx4] = dsComputeQuadrantPercentages();
+            const row = [next, qx1.toFixed(2), qx2.toFixed(2), qx3.toFixed(2), qx4.toFixed(2)];
+            dsRows.push(row);
+            const idx = dsLabelToIndex(next);
+            if (idx !== undefined) dsProgress[idx] += 1;
+            dsRefreshStatus();
+            dsClearCanvas();
+        }
+
+        function dsComputeQuadrantPercentages() {
+            // Similar to updateQuadrantCounts but returns precise percentages (0-100)
+            const imageData = dsCtx.getImageData(0, 0, DS_CANVAS_SIZE, DS_CANVAS_SIZE);
+            const data = imageData.data;
+            const half = DS_CANVAS_SIZE / 2;
+            const quads = [
+                { startX: 0, startY: 0, endX: half, endY: half },
+                { startX: half, startY: 0, endX: DS_CANVAS_SIZE, endY: half },
+                { startX: 0, startY: half, endX: half, endY: DS_CANVAS_SIZE },
+                { startX: half, startY: half, endX: DS_CANVAS_SIZE, endY: DS_CANVAS_SIZE }
+            ];
+            const out = [];
+            for (const q of quads) {
+                let black = 0;
+                let total = 0;
+                for (let y = q.startY; y < q.endY; y += 2) {
+                    for (let x = q.startX; x < q.endX; x += 2) {
+                        const idx = (y * DS_CANVAS_SIZE + x) * 4;
+                        const r = data[idx];
+                        const g = data[idx + 1];
+                        const b = data[idx + 2];
+                        const a = data[idx + 3];
+                        if (a > 0 && r < 100 && g < 100 && b < 100) black++;
+                        total++;
+                    }
+                }
+                const pct = total > 0 ? Math.min(100, (black / total) * 100 * 4) : 0; // *4 for 2px step
+                out.push(pct);
+            }
+            return out; // [x1,x2,x3,x4]
+        }
+
+        function dsExportCSV() {
+            if (!dsRows.length) { alert('Nessun campione raccolto.'); return; }
+            const header = ['label','x1','x2','x3','x4'];
+            const lines = [header.join(',')];
+            for (const row of dsRows) lines.push(row.join(','));
+            const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            const now = new Date();
+            const ts = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}_${String(now.getHours()).padStart(2,'0')}${String(now.getMinutes()).padStart(2,'0')}`;
+            a.href = url;
+            a.download = `handwritten_dataset_percentuali_${ts}.csv`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }
+    </script>
+</body>
+</html>
