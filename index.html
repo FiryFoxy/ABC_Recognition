@@ -378,6 +378,15 @@
             margin: 0 auto 20px;
         }
 
+        .nn-info-item pre {
+            background-color: #f0f0f0;
+            padding: 10px;
+            border-radius: 8px;
+            overflow-x: auto;
+            font-size: 0.9em;
+            white-space: pre-wrap; /* Allow wrapping for long lines */
+            word-break: break-all; /* Break long words */
+        }
         @keyframes spin {
             0% { transform: rotate(0deg); }
             100% { transform: rotate(360deg); }
@@ -395,6 +404,7 @@
             <button class="tab active" onclick="switchTab('drawing')">🎨 Disegna Cifra</button>
             <button class="tab" onclick="switchTab('network')">🧠 Rete Neurale</button>
             <button class="tab" onclick="switchTab('dataset')">📦 Dataset</button>
+            <button class="tab" onclick="switchTab('weights-biases')">📊 Pesi & Bias</button>
         </div>
 
         <!-- Drawing Tab -->
@@ -546,6 +556,21 @@
                             <li>Usa "Esporta CSV" per scaricare il dataset etichettato (label,x1,x2,x3,x4).</li>
                         </ul>
                     </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Weights and Biases Tab -->
+        <div id="weights-biases-tab" class="tab-content">
+            <div class="nn-container">
+                <h2 class="nn-title">Pesi e Bias della Rete Neurale</h2>
+                <div id="weights-biases-display" class="nn-info">
+                    <div class="loading" id="weightsBiasesLoading" style="display: none;">
+                        <div class="spinner"></div>
+                        <p>Caricamento modello e visualizzazione pesi e bias...</p>
+                    </div>
+                    <!-- Content will be injected here by JS -->
+                    <p>Carica il modello per visualizzare i pesi e i bias.</p>
                 </div>
             </div>
         </div>
@@ -704,6 +729,7 @@
         }
 
         function handleKeyPress(e) {
+            if (!document.getElementById('drawing-tab').classList.contains('active')) return;
             switch(e.key.toLowerCase()) {
                 case 'e':
                 case 'd':
@@ -813,7 +839,7 @@
             try {
                 if (!tfModel) {
                     // Attempt to load once
-                    tfModel = await tf.loadLayersModel('./letter_recognition_model/model.json');
+                    tfModel = await loadAndFixModel('./model.json');
                 }
             } catch (e) {
                 // Ignore load error; will fallback
@@ -864,6 +890,45 @@
             return arr.map(v => v / 100.0);
         }
 
+        /**
+         * Converts object keys from snake_case to camelCase recursively.
+         */
+        function snakeToCamel(obj) {
+            if (Array.isArray(obj)) {
+                return obj.map(v => snakeToCamel(v));
+            } else if (obj !== null && typeof obj === 'object') {
+                return Object.keys(obj).reduce((acc, key) => {
+                    const camelKey = key.replace(/_([a-z])/g, g => g[1].toUpperCase());
+                    acc[camelKey] = snakeToCamel(obj[key]);
+                    return acc;
+                }, {});
+            }
+            return obj;
+        }
+
+        /**
+         * Loads the TF.js model, applying a fix for older Keras model formats if needed.
+         * It fetches the model.json, checks for 'batch_shape' and renames it to 'batchInputShape',
+         * then loads the model from the corrected topology object.
+         */
+        async function loadAndFixModel(modelUrl) {
+            const modelJSON = await (await fetch(modelUrl)).json();
+            
+            // Convert all snake_case keys to camelCase for TF.js compatibility
+            const camelCaseJSON = snakeToCamel(modelJSON);
+
+            // Get the base path from the modelUrl to correctly locate weight files
+            const pathPrefix = modelUrl.substring(0, modelUrl.lastIndexOf('/') + 1);
+
+            // tf.io.fromMemory expects modelTopology and weightsManifest as separate properties.
+            const modelArtifacts = {
+                modelTopology: camelCaseJSON.modelTopology,
+                weightSpecs: camelCaseJSON.weightsManifest[0].weights,
+                weightData: (await tf.io.http(pathPrefix + camelCaseJSON.weightsManifest[0].paths[0])).load()
+            };
+            return await tf.loadLayersModel(tf.io.fromMemory(modelArtifacts));
+        }
+
         function updateResult(digit, confidence) {
             document.getElementById('resultDigit').textContent = digit;
             document.getElementById('confidence').textContent = 
@@ -890,6 +955,8 @@
             // Redraw neural network if switching to network tab
             if (tabName === 'network') {
                 setTimeout(drawNeuralNetwork, 100);
+            } else if (tabName === 'weights-biases') {
+                setTimeout(displayWeightsAndBiases, 100);
             }
         }
 
@@ -1001,6 +1068,84 @@
             return Array.from({length: n}, (_, i) => i);
         }
 
+        async function displayWeightsAndBiases() {
+            const displayDiv = document.getElementById('weights-biases-display');
+            const loadingDiv = document.getElementById('weightsBiasesLoading');
+            if (!displayDiv || !loadingDiv) return;
+
+            // Clear all dynamic content, but keep the loading spinner div
+            Array.from(displayDiv.children).forEach(child => {
+                if (child !== loadingDiv) {
+                    child.remove();
+                }
+            });
+
+            loadingDiv.style.display = 'block'; // Show loading spinner
+
+            try {
+                if (!tfModel) {
+                    // Attempt to load the model if not already loaded
+                    tfModel = await loadAndFixModel('./model.json');
+                }
+
+                if (!tfModel) {
+                    displayDiv.insertAdjacentHTML('beforeend', '<p style="color: red;">Errore: Modello non caricato. Assicurati che il file model.json sia presente.</p>');
+                    return;
+                }
+
+                let htmlContent = '<h3>Dettagli Pesi e Bias</h3>';
+                let foundWeights = false;
+
+                // Iterate over all layers, similar to the Python example
+                for (const layer of tfModel.layers) {
+                    const weightsAndBiases = layer.getWeights();
+
+                    // A layer has weights if getWeights() returns a non-empty array
+                    if (weightsAndBiases.length > 0) {
+                        foundWeights = true;
+                        const [weights, biases] = weightsAndBiases;
+                        const weightsArray = weights.arraySync();
+                        const biasesArray = biases.arraySync();
+                        const weightsShape = weights.shape.join('x');
+                        const biasesShape = biases.shape[0];
+                        
+                        htmlContent += `
+                            <div class="nn-info-item">
+                                <div class="icon">⚙️</div>
+                                <div>
+                                    <strong>Pesi per Layer: ${layer.name} (${weightsShape})</strong>
+                                    <pre>${JSON.stringify(weightsArray, null, 2)}</pre>
+                                </div>
+                            </div>
+                            <div class="nn-info-item">
+                                <div class="icon">➕</div>
+                                <div>
+                                    <strong>Bias per Layer: ${layer.name} (${biasesShape})</strong>
+                                    <pre>${JSON.stringify(biasesArray, null, 2)}</pre>
+                                </div>
+                            </div>
+                        `;
+
+                        // Clean up tensors to prevent memory leaks
+                        weights.dispose();
+                        biases.dispose();
+                    }
+                }
+
+                if (!foundWeights) {
+                    htmlContent += '<p>Nessun layer con pesi e bias trovato nel modello.</p>';
+                }
+
+                displayDiv.insertAdjacentHTML('beforeend', htmlContent);
+
+            } catch (error) {
+                console.error('Errore durante il caricamento o la visualizzazione di pesi e bias:', error);
+                displayDiv.insertAdjacentHTML('beforeend', `<p style="color: red;">Errore durante il caricamento o la visualizzazione: ${error.message}</p>`);
+            } finally {
+                loadingDiv.style.display = 'none'; // Hide loading spinner
+            }
+        }
+
         // =====================
         // Dataset Collection JS
         // =====================
@@ -1086,6 +1231,10 @@
                         break;
                     case 'c':
                         dsClearCanvas();
+                        break;
+                    case 'enter':
+                        e.preventDefault(); // Previene l'azione predefinita del browser
+                        dsSaveSample();
                         break;
                 }
             });
