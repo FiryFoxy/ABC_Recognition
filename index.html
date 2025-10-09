@@ -387,6 +387,31 @@
             white-space: pre-wrap; /* Allow wrapping for long lines */
             word-break: break-all; /* Break long words */
         }
+
+        .weights-table {
+            border-collapse: collapse;
+            margin-top: 10px;
+            font-size: 0.9em;
+            width: 100%;
+        }
+        .weights-table td {
+            border: 1px solid #ddd;
+            padding: 8px 12px;
+            text-align: center;
+            min-width: 60px;
+            font-size: 0.9em;
+            white-space: pre-wrap; /* Allow wrapping for long lines */
+            word-break: break-all; /* Break long words */
+        }
+
+        .weights-explanation {
+            background-color: #f8f9fa;
+            border: 1px solid #e9ecef;
+            border-radius: 8px;
+            padding: 15px;
+            margin-top: 15px;
+            font-size: 0.85em;
+        }
         @keyframes spin {
             0% { transform: rotate(0deg); }
             100% { transform: rotate(360deg); }
@@ -839,7 +864,7 @@
             try {
                 if (!tfModel) {
                     // Attempt to load once
-                    tfModel = await loadAndFixModel('./model.json');
+                    tfModel = await createModelFromCSVs();
                 }
             } catch (e) {
                 // Ignore load error; will fallback
@@ -890,43 +915,58 @@
             return arr.map(v => v / 100.0);
         }
 
-        /**
-         * Converts object keys from snake_case to camelCase recursively.
-         */
-        function snakeToCamel(obj) {
-            if (Array.isArray(obj)) {
-                return obj.map(v => snakeToCamel(v));
-            } else if (obj !== null && typeof obj === 'object') {
-                return Object.keys(obj).reduce((acc, key) => {
-                    const camelKey = key.replace(/_([a-z])/g, g => g[1].toUpperCase());
-                    acc[camelKey] = snakeToCamel(obj[key]);
-                    return acc;
-                }, {});
+        /** Helper to load and parse a CSV file into a 2D array of numbers. */
+        async function loadCSV(url) {
+            const response = await fetch(url);
+            if (!response.ok) {
+                throw new Error(`Failed to load CSV from ${url}: ${response.statusText}`);
             }
-            return obj;
+            const text = await response.text();
+            return text.trim().split('\n').map(row => row.split(',').map(parseFloat));
         }
 
         /**
-         * Loads the TF.js model, applying a fix for older Keras model formats if needed.
-         * It fetches the model.json, checks for 'batch_shape' and renames it to 'batchInputShape',
-         * then loads the model from the corrected topology object.
+         * Creates a TF.js sequential model and loads its weights from CSV files.
+         * Assumes specific filenames for weights and biases.
          */
-        async function loadAndFixModel(modelUrl) {
-            const modelJSON = await (await fetch(modelUrl)).json();
-            
-            // Convert all snake_case keys to camelCase for TF.js compatibility
-            const camelCaseJSON = snakeToCamel(modelJSON);
+        async function createModelFromCSVs() {
+            // 1. Define the model architecture (4-5-3)
+            const model = tf.sequential();
+            model.add(tf.layers.dense({
+                name: 'hidden_layer',
+                inputShape: [4],
+                units: 5,
+                activation: 'relu'
+            }));
+            model.add(tf.layers.dense({
+                name: 'output_layer',
+                units: 3,
+                activation: 'softmax'
+            }));
 
-            // Get the base path from the modelUrl to correctly locate weight files
-            const pathPrefix = modelUrl.substring(0, modelUrl.lastIndexOf('/') + 1);
+            // 2. Load weights and biases from CSV files
+            const [
+                weightsHiddenData,
+                biasesHiddenData,
+                weightsOutputData,
+                biasesOutputData
+            ] = await Promise.all([
+                loadCSV('./weights_hidden.csv'),
+                loadCSV('./biases_hidden.csv'),
+                loadCSV('./weights_output.csv'),
+                loadCSV('./biases_output.csv')
+            ]);
 
-            // tf.io.fromMemory expects modelTopology and weightsManifest as separate properties.
-            const modelArtifacts = {
-                modelTopology: camelCaseJSON.modelTopology,
-                weightSpecs: camelCaseJSON.weightsManifest[0].weights,
-                weightData: (await tf.io.http(pathPrefix + camelCaseJSON.weightsManifest[0].paths[0])).load()
-            };
-            return await tf.loadLayersModel(tf.io.fromMemory(modelArtifacts));
+            // 3. Create tensors and set weights for each layer
+            const weightsHidden = tf.tensor2d(weightsHiddenData, [4, 5]);
+            const biasesHidden = tf.tensor1d(biasesHiddenData.flat());
+            model.getLayer('hidden_layer').setWeights([weightsHidden, biasesHidden]);
+
+            const weightsOutput = tf.tensor2d(weightsOutputData, [5, 3]);
+            const biasesOutput = tf.tensor1d(biasesOutputData.flat());
+            model.getLayer('output_layer').setWeights([weightsOutput, biasesOutput]);
+
+            return model;
         }
 
         function updateResult(digit, confidence) {
@@ -1068,6 +1108,104 @@
             return Array.from({length: n}, (_, i) => i);
         }
 
+        /**
+         * Creates a textual explanation for a weight matrix.
+         * @param {string} layerName The name of the layer.
+         * @param {number[][]} weightsArray The weight matrix.
+         * @returns {string} HTML string with the explanation.
+         */
+        function createWeightExplanation(layerName, weightsArray) {
+            let html = '<div class="weights-explanation">';
+            if (layerName === 'hidden_layer') {
+                html += '<strong>Come interpretare questi pesi:</strong><p>Ogni colonna rappresenta un "rilevatore di caratteristiche" (neurone nascosto). I pesi in quella colonna mostrano quanto ogni quadrante di input (x1-x4) attiva quel rilevatore.</p><ul>';
+                const inputLabels = ['Alto-Sinistra (x1)', 'Alto-Destra (x2)', 'Basso-Sinistra (x3)', 'Basso-Destra (x4)'];
+                // Transpose weights to iterate by hidden neuron
+                const transposed = weightsArray[0].map((_, colIndex) => weightsArray.map(row => row[colIndex]));
+                transposed.forEach((neuronWeights, i) => {
+                    html += `<li><strong>Neurone Nascosto ${i + 1}:</strong> È attivato da un disegno in `;
+                    const influences = neuronWeights.map((w, j) => ({ weight: w, label: inputLabels[j] }))
+                        .sort((a, b) => Math.abs(b.weight) - Math.abs(a.weight));
+                    const mainInfluence = influences[0];
+                    html += `<strong>${mainInfluence.label}</strong> (peso ${mainInfluence.weight.toFixed(2)}). Un peso positivo significa che più pixel ci sono in quel quadrante, più questo neurone si attiva.</li>`;
+                });
+                html += '</ul>';
+            } else if (layerName === 'output_layer') {
+                html += '<strong>Come interpretare questi pesi:</strong><p>Ogni colonna rappresenta una lettera finale (a, b, c). I pesi mostrano come l\'attivazione di ogni neurone nascosto (1-5) contribuisce a "votare" per quella lettera.</p><ul>';
+                const outputLabels = ['a', 'b', 'c'];
+                // Transpose weights to iterate by output neuron
+                const transposed = weightsArray[0].map((_, colIndex) => weightsArray.map(row => row[colIndex]));
+                transposed.forEach((outputWeights, i) => {
+                    html += `<li><strong>Lettera '${outputLabels[i]}':</strong> La probabilità per questa lettera aumenta se sono attivi i neuroni nascosti con pesi positivi. `;
+                    const influences = outputWeights.map((w, j) => ({ weight: w, neuron: j + 1 }))
+                        .sort((a, b) => b.weight - a.weight); // Sort by positive influence
+                    const mainPosInfluence = influences.find(inf => inf.weight > 0);
+                    const mainNegInfluence = influences.reverse().find(inf => inf.weight < 0);
+
+                    if (mainPosInfluence) {
+                        html += `Il contributo maggiore viene dal <strong>Neurone Nascosto ${mainPosInfluence.neuron}</strong> (peso ${mainPosInfluence.weight.toFixed(2)}). `;
+                    }
+                    if (mainNegInfluence) {
+                        html += `Viene invece "penalizzata" dall'attivazione del <strong>Neurone Nascosto ${mainNegInfluence.neuron}</strong> (peso ${mainNegInfluence.weight.toFixed(2)}).`;
+                    }
+                    html += '</li>';
+                });
+                html += '</ul>';
+            }
+            html += '</div>';
+            return html;
+        }
+
+        /**
+         * Creates an HTML table with a heatmap for a 2D matrix (weights).
+         * @param {number[][]} matrix The weight matrix.
+         * @param {number} decimals Number of decimal places to show.
+         * @returns {string} HTML table string.
+         */
+        function createMatrixTable(matrix, decimals = 2) {
+            let maxAbs = 0;
+            matrix.forEach(row => row.forEach(val => {
+                if (Math.abs(val) > maxAbs) maxAbs = Math.abs(val);
+            }));
+
+            let table = '<table class="weights-table">';
+            for (const row of matrix) {
+                table += '<tr>';
+                for (const val of row) {
+                    const roundedVal = val.toFixed(decimals);
+                    const intensity = maxAbs > 0 ? Math.min(1, Math.abs(val) / maxAbs) : 0;
+                    // Red for positive (#ea6666), Blue for negative (#667eea)
+                    const color = val >= 0 ? `rgba(234, 102, 102, ${intensity})` : `rgba(102, 126, 234, ${intensity})`;
+                    table += `<td style="background-color: ${color}; color: ${intensity > 0.6 ? 'white' : 'black'};">${roundedVal}</td>`;
+                }
+                table += '</tr>';
+            }
+            table += '</table>';
+            return table;
+        }
+
+        /**
+         * Creates an HTML table with a heatmap for a 1D vector (biases).
+         * @param {number[]} vector The bias vector.
+         * @param {number} decimals Number of decimal places to show.
+         * @returns {string} HTML table string.
+         */
+        function createVectorTable(vector, decimals = 2) {
+            let maxAbs = 0;
+            vector.forEach(val => {
+                if (Math.abs(val) > maxAbs) maxAbs = Math.abs(val);
+            });
+
+            let table = '<table class="weights-table"><tr>';
+            for (const val of vector) {
+                const roundedVal = val.toFixed(decimals);
+                const intensity = maxAbs > 0 ? Math.min(1, Math.abs(val) / maxAbs) : 0;
+                const color = val >= 0 ? `rgba(234, 102, 102, ${intensity})` : `rgba(102, 126, 234, ${intensity})`;
+                table += `<td style="background-color: ${color}; color: ${intensity > 0.6 ? 'white' : 'black'};">${roundedVal}</td>`;
+            }
+            table += '</tr></table>';
+            return table;
+        }
+
         async function displayWeightsAndBiases() {
             const displayDiv = document.getElementById('weights-biases-display');
             const loadingDiv = document.getElementById('weightsBiasesLoading');
@@ -1085,11 +1223,11 @@
             try {
                 if (!tfModel) {
                     // Attempt to load the model if not already loaded
-                    tfModel = await loadAndFixModel('./model.json');
+                    tfModel = await createModelFromCSVs();
                 }
 
                 if (!tfModel) {
-                    displayDiv.insertAdjacentHTML('beforeend', '<p style="color: red;">Errore: Modello non caricato. Assicurati che il file model.json sia presente.</p>');
+                    displayDiv.insertAdjacentHTML('beforeend', '<p style="color: red;">Errore: Modello non caricato. Assicurati che i file CSV dei pesi siano presenti.</p>');
                     return;
                 }
 
@@ -1113,15 +1251,16 @@
                             <div class="nn-info-item">
                                 <div class="icon">⚙️</div>
                                 <div>
-                                    <strong>Pesi per Layer: ${layer.name} (${weightsShape})</strong>
-                                    <pre>${JSON.stringify(weightsArray, null, 2)}</pre>
+                                    <strong>Pesi per Layer: ${layer.name} (Forma: ${weightsShape})</strong>
+                                    ${createMatrixTable(weightsArray)}
+                                    ${createWeightExplanation(layer.name, weightsArray)}
                                 </div>
                             </div>
                             <div class="nn-info-item">
                                 <div class="icon">➕</div>
                                 <div>
-                                    <strong>Bias per Layer: ${layer.name} (${biasesShape})</strong>
-                                    <pre>${JSON.stringify(biasesArray, null, 2)}</pre>
+                                    <strong>Bias per Layer: ${layer.name} (Forma: ${biasesShape})</strong>
+                                    ${createVectorTable(biasesArray)}
                                 </div>
                             </div>
                         `;
@@ -1140,7 +1279,7 @@
 
             } catch (error) {
                 console.error('Errore durante il caricamento o la visualizzazione di pesi e bias:', error);
-                displayDiv.insertAdjacentHTML('beforeend', `<p style="color: red;">Errore durante il caricamento o la visualizzazione: ${error.message}</p>`);
+                displayDiv.insertAdjacentHTML('beforeend', `<p style="color: red;">Errore durante il caricamento o la visualizzazione dei pesi dai file CSV: ${error.message}</p>`);
             } finally {
                 loadingDiv.style.display = 'none'; // Hide loading spinner
             }
